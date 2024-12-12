@@ -1,9 +1,16 @@
 /**
  * @since 0.2.0
  */
-import type { GlobalConfig, KafkaConsumer, Message } from "@confluentinc/kafka-javascript";
-import { Array, Config, Effect, Layer, Queue, Runtime } from "effect";
+import type {
+  GlobalConfig,
+  KafkaConsumer,
+  LibrdKafkaError,
+  Message,
+  TopicPartitionOffsetAndMetadata,
+} from "@confluentinc/kafka-javascript";
+import { Array, Config, Effect, Layer, pipe, Queue, Runtime, Predicate } from "effect";
 import * as Consumer from "../Consumer.js";
+import * as ConsumerError from "../ConsumerError.js";
 import * as ConsumerRecord from "../ConsumerRecord.js";
 import * as KafkaInstance from "../KafkaInstance.js";
 import * as Producer from "../Producer.js";
@@ -26,7 +33,44 @@ const mapToConsumerRecord = (payload: Message, consumer: KafkaConsumer): Consume
     attributes: 0,
     size: payload.size,
     heartbeat: () => Effect.void, // Not supported
-    commit: () => Effect.sync(() => consumer.commit()),
+    commit: () =>
+      pipe(
+        Effect.sync(() => consumer.commit([payload])),
+        Effect.flatMap(() =>
+          Effect.async<TopicPartitionOffsetAndMetadata[], LibrdKafkaError>((resume) => {
+            consumer.committed([payload], 2000, (err, topicPartitions) => {
+              err ? resume(Effect.fail(err)) : resume(Effect.succeed(topicPartitions));
+            });
+          }).pipe(
+            Effect.flatMap((topicPartitions) => {
+              const target = topicPartitions.find(
+                (topicPartition) =>
+                  topicPartition.topic === payload.topic && topicPartition.partition === payload.partition,
+              );
+              if (!target) {
+                return Effect.fail(
+                  new ConsumerError.ConsumerCommitError({
+                    message: "Unknown error committing message, unable to find response ",
+                  }),
+                );
+              }
+              if (target.offset !== payload.offset) {
+                return Effect.fail(
+                  new ConsumerError.ConsumerCommitError({
+                    message: `Unknown error committing message, offset mismatch. Committed ${payload.offset}, got ${target.offset}`,
+                  }),
+                );
+              }
+              return Effect.void;
+            }),
+            Effect.mapError((err) =>
+              Predicate.hasProperty(err, "_tag") && err._tag === "ConsumerCommitError"
+                ? err
+                : new ConsumerError.ConsumerCommitError({ message: err.message }),
+            ),
+          ),
+        ),
+      ),
   });
 
 /**

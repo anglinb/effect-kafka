@@ -1,4 +1,5 @@
 import { Context, Effect, String } from "effect";
+import { ConsumerCommitError } from "../ConsumerError.js";
 import type * as ConsumerRecord from "../ConsumerRecord.js";
 
 /** @internal */
@@ -23,7 +24,7 @@ export type ConsumerRecordConstructorProps = {
   readonly headers?: ConsumerRecord.ConsumerRecord.Headers;
   readonly size?: number;
   readonly heartbeat: () => Effect.Effect<void>;
-  readonly commit: () => Effect.Effect<void>;
+  readonly commit: () => Effect.Effect<void, ConsumerCommitError>;
 };
 
 /** @internal */

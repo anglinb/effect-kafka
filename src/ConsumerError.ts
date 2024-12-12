@@ -25,3 +25,16 @@ export class RouteNotFound extends Data.TaggedError("RouteNotFound")<{
     return `${this.payload.topic} handler not found`;
   }
 }
+
+/**
+ * @since 0.6.0
+ * @category error
+ */
+export class ConsumerCommitError extends Data.TaggedError("ConsumerCommitError")<{
+  readonly message: string;
+}> {
+  constructor(options: { readonly message: string; readonly stack?: string }) {
+    super(options);
+    (this as any).stack = options.stack ?? `${this.name}: ${this.message}`;
+  }
+}
